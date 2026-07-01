@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Bazaar - a marketplace where the listing has to be true</title>
+<meta name="description" content="An AI-verified peer marketplace on GenLayer. Buy with escrow; the contract reads the deliverable and a validator set confirms it matches the listing before the seller is paid." />
+<link rel="stylesheet" href="./styles.css?v=1">
+<link rel="preconnect" href="https://api.fontshare.com">
+<link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=clash-display@600,700&f[]=general-sans@400,500,600&display=swap">
+<link rel="preconnect" href="https://rsms.me/"><link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/bold/style.css">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a class="brand" href="#/"><span class="logo-mark">◈</span> Bazaar</a>
+    <div class="nav-mid">
+      <a href="#/" class="nl" data-route="browse">Browse</a>
+      <a href="#/sell" class="nl" data-route="sell">Sell an item</a>
+    </div>
+    <div class="nav-end">
+      <span id="walletslot"><button class="btn ghost sm" id="connectBtn">Connect</button></span>
+      <a href="#/sell" class="btn primary sm">+ List item</a>
+    </div>
+  </div>
+</nav>
+
+<div id="app"><div class="loading">Loading the bazaar…</div></div>
+
+<footer class="footer">
+  <div class="foot-inner">
+    <span class="foot-brand"><span class="logo-mark sm">◈</span> Bazaar</span>
+    <span class="foot-mid">Buy with escrow · a validator set verifies the deliverable matches before the seller is paid.</span>
+    <span class="foot-links"><a id="contractLink" href="https://explorer-studio.genlayer.com/contracts/0x65135bB831a542551BdD2CAb83834c5f16E2A107" target="_blank" rel="noopener">Contract 0x6513...A107 -></a><a href="https://docs.genlayer.com/" target="_blank" rel="noopener">GenLayer</a><span class="net"><span class="net-dot"></span>studionet</span></span>
+  </div>
+</footer>
+
+<div id="log"></div>
+<script type="module" src="./app.js?v=1"></script>
+</body>
+</html>
