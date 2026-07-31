@@ -10,7 +10,7 @@ Bazaar is a marketplace review layer. Listings can carry assets, source proof, r
 | --- | --- |
 | Live app | https://assmore22-bazaar.vercel.app |
 | GitHub | https://github.com/assmore22/bazaar |
-| Contract | https://explorer-studio.genlayer.com/contracts/0x65135bB831a542551BdD2CAb83834c5f16E2A107 |
+| Contract | https://explorer-studio.genlayer.com/address/0x65135bB831a542551BdD2CAb83834c5f16E2A107 |
 
 ## Chain Record
 

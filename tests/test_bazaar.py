@@ -1,91 +1,115 @@
-"""Tests for BAZAAR (direct runner). AI confirm() validated live on studionet."""
+"""Executable Bazaar V2 authorization and settlement-invariant tests."""
+
+import json
 from pathlib import Path
 
-CONTRACT = str(Path(__file__).resolve().parents[1] / "contracts" / "bazaar.py")
-GEN = 10 ** 18
-S_LISTED = 0; S_SOLD = 1; S_DELIVERED = 2; S_REFUNDED = 3; S_CANCELLED = 4
+
+CONTRACT = str(Path(__file__).resolve().parents[1] / "contracts" / "bazaar_v2.py")
 
 
-def _list(b, vm, who, title="Logo pack", desc="20 SVG logos", url="https://example.com", cat="design", price=3):
-    vm.sender = who
-    return b.list_item(title, desc, url, cat, price * GEN)
+def _deploy_and_draft(deploy, vm, owner, counterparty):
+    vm.warp("2026-07-16T12:00:00Z")
+    vm.sender = owner
+    contract = deploy(CONTRACT)
+    peer = "0x" + counterparty.hex()
+    record_id = contract.draft_listing(peer, "Licensed asset", "Buyer receives the published deliverable", "https://example.com", "design", "0")
+    return contract, record_id
 
 
-def test_list_item(deploy, direct_vm, direct_alice):
-    b = deploy(CONTRACT)
-    iid = _list(b, direct_vm, direct_alice)
-    assert iid == 0
-    it = b.get_item(0)
-    assert it["status"] == S_LISTED
-    assert int(it["price"]) == 3 * GEN
-    assert it["category"] == "design"
+def _mock_review(vm):
+    vm.mock_llm(
+        r"Reply ONLY JSON with keys: outcome",
+        json.dumps({
+            "outcome": "met",
+            "confidenceBps": 8400,
+            "triggerBps": 8500,
+            "acceptanceBps": 8500,
+            "grantBps": 8500,
+            "settlementBps": 8500,
+            "deliveryBps": 8500,
+            "summary": "The submitted public evidence satisfies the standard.",
+            "rationale": "The source and stated condition agree.",
+            "riskFlags": [],
+        }),
+    )
 
 
-def test_list_requires_price(deploy, direct_vm, direct_alice):
-    b = deploy(CONTRACT)
-    direct_vm.sender = direct_alice
-    with direct_vm.expect_revert("price must be positive"):
-        b.list_item("t", "d", "https://x.com", "c", 0)
+def _mock_ruling(vm, kind, ruling, revised):
+    vm.mock_llm(
+        rf"resolving .* {kind}",
+        json.dumps({
+            "ruling": ruling,
+            "revisedOutcome": revised,
+            "confidenceDeltaBps": -900 if revised == "not_met" else 700,
+            "reason": "The filing supplies controlling public evidence.",
+            "riskFlags": [],
+        }),
+    )
 
 
-def test_list_requires_proof(deploy, direct_vm, direct_alice):
-    b = deploy(CONTRACT)
-    direct_vm.sender = direct_alice
-    with direct_vm.expect_revert("a proof URL is required"):
-        b.list_item("t", "d", "", "c", GEN)
-
-
-def test_buy(deploy, direct_vm, direct_alice, direct_bob):
-    b = deploy(CONTRACT)
-    _list(b, direct_vm, direct_alice)
+def test_admin_standard_and_review_permissions_execute(
+    deploy, direct_vm, direct_alice, direct_bob, direct_charlie
+):
+    contract, record_id = _deploy_and_draft(
+        deploy, direct_vm, direct_alice, direct_bob
+    )
     direct_vm.sender = direct_bob
-    direct_vm.value = 3 * GEN
-    b.buy(0)
-    direct_vm.value = 0
-    it = b.get_item(0)
-    assert it["status"] == S_SOLD
-    assert it["buyer"] != "0x0000000000000000000000000000000000000000"
+    with direct_vm.expect_revert("admin_only"):
+        contract.set_bazaar_standard("attacker-controlled settlement standard")
+
+    direct_vm.sender = direct_charlie
+    with direct_vm.expect_revert("record_operator_only"):
+        contract.review_listing_with_genlayer(str(record_id))
 
 
-def test_cannot_buy_own(deploy, direct_vm, direct_alice):
-    b = deploy(CONTRACT)
-    _list(b, direct_vm, direct_alice)
+def test_maturity_challenge_appeal_and_final_settlement_execute(
+    deploy, direct_vm, direct_alice, direct_bob, direct_charlie
+):
+    contract, record_id = _deploy_and_draft(
+        deploy, direct_vm, direct_alice, direct_bob
+    )
     direct_vm.sender = direct_alice
-    direct_vm.value = 3 * GEN
-    with direct_vm.expect_revert("cannot buy your own"):
-        b.buy(0)
-    direct_vm.value = 0
+    _mock_review(direct_vm)
+    contract.review_listing_with_genlayer(str(record_id))
 
+    with direct_vm.expect_revert("review_not_mature"):
+        contract.settle(record_id)
 
-def test_buy_must_match_price(deploy, direct_vm, direct_alice, direct_bob):
-    b = deploy(CONTRACT)
-    _list(b, direct_vm, direct_alice)
-    direct_vm.sender = direct_bob
-    direct_vm.value = 1 * GEN
-    with direct_vm.expect_revert("pay exactly the price"):
-        b.buy(0)
-    direct_vm.value = 0
+    contract.open_challenge_window(str(record_id))
+    direct_vm.sender = direct_charlie
+    challenge_id = contract.submit_challenge(
+        str(record_id),
+        "The initial source was superseded.",
+        "https://example.org/challenge",
+    )
 
-
-def test_cancel(deploy, direct_vm, direct_alice):
-    b = deploy(CONTRACT)
-    _list(b, direct_vm, direct_alice)
     direct_vm.sender = direct_alice
-    b.cancel(0)
-    assert b.get_item(0)["status"] == S_CANCELLED
+    with direct_vm.expect_revert("open_review_filing"):
+        contract.settle(record_id)
 
+    _mock_ruling(direct_vm, "challenge", "accepted", "not_met")
+    contract.resolve_challenge_with_genlayer(str(record_id), challenge_id)
+    record = json.loads(contract.get_listing_record(str(record_id)))
+    assert record["outcome"] == "not_met"
 
-def test_confirm_requires_sold(deploy, direct_vm, direct_alice):
-    b = deploy(CONTRACT)
-    _list(b, direct_vm, direct_alice)
+    direct_vm.sender = direct_charlie
+    appeal_id = contract.submit_appeal(
+        str(record_id),
+        "A final official publication controls the decision.",
+        "https://example.net/appeal",
+    )
+
     direct_vm.sender = direct_alice
-    with direct_vm.expect_revert("not awaiting confirmation"):
-        b.confirm(0)
+    with direct_vm.expect_revert("open_review_filing"):
+        contract.settle(record_id)
 
+    _mock_ruling(direct_vm, "appeal", "granted", "met")
+    contract.resolve_appeal_with_genlayer(str(record_id), appeal_id)
+    direct_vm.warp("2026-07-16T13:00:01Z")
+    contract.settle(record_id)
 
-def test_multiple(deploy, direct_vm, direct_alice):
-    b = deploy(CONTRACT)
-    _list(b, direct_vm, direct_alice, title="Item A")
-    _list(b, direct_vm, direct_alice, title="Item B")
-    assert b.get_item_count() == 2
-    assert b.get_item(1)["title"] == "Item B"
+    record = json.loads(contract.get_listing_record(str(record_id)))
+    assert record["outcome"] == "met"
+    assert record["status"] == "SETTLED"
+    assert record["challengeIds"] == [challenge_id]
+    assert record["appealIds"] == [appeal_id]

@@ -1,5 +1,6 @@
 import { makeReader, write, connectWallet, activeAccount, balanceOf, short, toGen, GEN, fmtErr }
-  from "../shared/genlayer-lite.js";
+  from "./shared/genlayer-lite.js";
+import { mountReviewDesk } from "./shared/review-desk.js";
 
 const CONTRACT = "0x65135bB831a542551BdD2CAb83834c5f16E2A107";
 const { read } = makeReader(CONTRACT);
@@ -8,6 +9,15 @@ const STLABEL = ["Available", "In escrow", "Delivered", "Refunded", "Withdrawn"]
 const STCLS = ["st-listed", "st-sold", "st-delivered", "st-refunded", "st-cancelled"];
 let account = null, items = [], catFilter = "all", sellCat = "design";
 const $ = (id) => document.getElementById(id);
+
+queueMicrotask(() => mountReviewDesk({
+  contract: CONTRACT, read, write, ensureWallet, fmtErr,
+  entity: "Listing", countMethod: "get_listing_count", recordMethod: "get_listing_record",
+  openWindowMethod: "open_challenge_window", submitChallengeMethod: "submit_challenge", resolveChallengeMethod: "resolve_challenge_with_genlayer",
+  submitAppealMethod: "submit_appeal", resolveAppealMethod: "resolve_appeal_with_genlayer", archiveMethod: "archive_listing",
+  variant: "well", kicker: "Delivery dispute counter", title: "Bazaar claims counter",
+  intro: "Bring the listing, delivery evidence, and objection into one review path so a disputed trade cannot quietly disappear from the ledger.",
+}));
 const app = () => $("app");
 const esc = (s) => (s || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const short2 = short;
@@ -34,8 +44,7 @@ async function ensureWallet() { if (!account) account = await connectWallet(); a
 
 async function loadItems() {
   const count = Number(await read("get_item_count"));
-  const out = [];
-  for (let i = 0; i < count; i++) out.push({ id: i, ...(await read("get_item", [i])) });
+  const out = await Promise.all(Array.from({ length: count }, (_, i) => read("get_item", [i]).then((record) => ({ id: i, ...record }))));
   items = out;
 }
 
@@ -119,7 +128,7 @@ function renderSell() {
     <div class="field"><label>Category</label><div class="cat-pick">${cats.map((c) => `<span class="cat ${c === sellCat ? "on" : ""}" data-sc="${c}">${c}</span>`).join("")}</div></div>
     <div class="field"><label>Description - what the buyer gets</label><textarea id="nDesc" placeholder="Be specific. This is what the validators check the deliverable against."></textarea></div>
     <div class="row2">
-      <div class="field"><label>Deliverable URL</label><input id="nUrl" placeholder="https://… where it lives" /></div>
+      <div class="field"><label>Deliverable URL</label><input id="nUrl" placeholder="https://... where it lives" /></div>
       <div class="field"><label>Price (GEN)</label><input id="nPrice" type="number" min="0" step="0.5" value="3" /></div>
     </div>
     <button class="btn primary lg" id="listBtn" style="margin-top:26px"><i class="ph-bold ph-storefront"></i> Publish listing</button>
@@ -137,7 +146,7 @@ async function doBuy(it) {
 async function doConfirm(id) {
   if (!confirm("Verify & settle? Validators read the deliverable and decide if it matches. Calls a real LLM.")) return;
   const btn = $("confirmBtn"); btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> validators verifying';
-  try { await ensureWallet(); toast("Validators reading the deliverable…", "", "verify"); await write(CONTRACT, "confirm", [id]); toast("Settled on-chain.", "ok"); await loadItems(); route(); }
+  try { await ensureWallet(); toast("Validators reading the deliverable...", "", "verify"); await write(CONTRACT, "confirm", [id]); toast("Settled on-chain.", "ok"); await loadItems(); route(); }
   catch (e) { toast(fmtErr(e), "err"); if (btn) { btn.disabled = false; btn.textContent = "Verify & settle"; } }
 }
 async function doCancel(id) {
